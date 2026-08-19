@@ -1,0 +1,89 @@
+:root {
+  /* Color tokens — warm ivory base, near-black ink, deep forest accent */
+  --color-bg: #FAF9F6;
+  --color-ink: #1A1A17;
+  --color-accent: #2F4538;
+  --color-accent-soft: #E8ECE6;
+  --color-sand: #C9C2B3;
+  --color-muted: #7A7870;
+  --color-border: #E4E2DC;
+
+  /* Type */
+  --font-display: 'Playfair Display', Georgia, serif;
+  --font-body: 'Inter', -apple-system, sans-serif;
+}
+
+body {
+  background-color: var(--color-bg);
+  color: var(--color-ink);
+  font-family: var(--font-body);
+}
+
+.font-display {
+  font-family: var(--font-display);
+}
+
+/* Utility eyebrow label style - small uppercase tracked caps */
+.eyebrow {
+  font-family: var(--font-body);
+  font-size: 0.75rem;
+  font-weight: 600;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--color-accent);
+}
+
+/* Custom button that matches the boutique palette, used for primary CTAs */
+.btn-boutique {
+  background-color: var(--color-ink);
+  color: var(--color-bg);
+  border: none;
+  border-radius: 2px;
+  padding: 0.7rem 1.75rem;
+  font-family: var(--font-body);
+  font-weight: 500;
+  font-size: 0.95rem;
+  letter-spacing: 0.02em;
+  transition: background-color 0.2s ease;
+}
+.btn-boutique:hover {
+  background-color: var(--color-accent);
+  color: #fff;
+}
+
+/* Category nav underline tabs */
+.cat-tab {
+  cursor: pointer;
+  font-family: var(--font-body);
+  font-size: 0.92rem;
+  padding: 0.85rem 1.1rem;
+  color: var(--color-muted);
+  border-bottom: 2px solid transparent;
+  transition: color 0.15s ease, border-color 0.15s ease;
+  white-space: nowrap;
+}
+.cat-tab:hover {
+  color: var(--color-ink);
+}
+.cat-tab.active {
+  color: var(--color-ink);
+  border-bottom-color: var(--color-accent);
+  font-weight: 600;
+}
+
+/* Product card refinements */
+.product-card {
+  border: 1px solid var(--color-border);
+  border-radius: 4px;
+  background: #fff;
+  transition: box-shadow 0.2s ease, transform 0.2s ease;
+}
+.product-card:hover {
+  box-shadow: 0 12px 24px rgba(26, 26, 23, 0.08);
+  transform: translateY(-3px);
+}
+.product-card .price {
+  font-family: var(--font-display);
+  font-size: 1.15rem;
+  font-weight: 600;
+}
