@@ -15,3 +15,6 @@ Thumbs.db
 # Build output
 dist/
 build/
+
+#  frontend's build files:
+to also cover the frontend's build files: frontend/node_modules/ frontend/dist/ This stops the frontend's massive node_modules folder from being uploaded too.
