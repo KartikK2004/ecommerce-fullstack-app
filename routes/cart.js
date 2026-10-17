@@ -3,28 +3,29 @@ const router = express.Router();
 const pool = require('../config/db');
 const { verifyToken } = require('../middleware/auth');
 
-// All cart routes require login — a cart always belongs to a specific user.
-// verifyToken runs on every route below via router.use()
 router.use(verifyToken);
 
 // =====================================================
 // GET /api/cart
-// Get the logged-in user's cart, joined with product details
-// (so we can show name, price, image — not just IDs)
 // =====================================================
 router.get('/', async (req, res) => {
   try {
     const [items] = await pool.query(
-      `SELECT c.id AS cart_id, c.quantity, 
-              p.id AS product_id, p.name, p.price, p.image_url, p.stock
+      `SELECT c.id AS cart_id, c.quantity, c.size,
+              p.id AS product_id, p.name, p.price, p.image_url, p.stock, p.discount_percent
        FROM cart c
        JOIN products p ON c.product_id = p.id
        WHERE c.user_id = ?`,
       [req.user.id]
     );
 
-    // Calculate the total price of everything in the cart
-    const total = items.reduce((sum, item) => sum + (item.price * item.quantity), 0);
+    // Use the discounted price for the total if the product is on sale
+    const total = items.reduce((sum, item) => {
+      const effectivePrice = item.discount_percent
+        ? item.price * (1 - item.discount_percent / 100)
+        : item.price;
+      return sum + effectivePrice * item.quantity;
+    }, 0);
 
     res.json({ items, total: total.toFixed(2) });
   } catch (err) {
@@ -35,17 +36,18 @@ router.get('/', async (req, res) => {
 
 // =====================================================
 // POST /api/cart
-// Add a product to the cart (or increase quantity if it's already there)
+// Add a product to the cart, optionally with a size.
+// A product+size combo is treated as a distinct cart line
+// (e.g. same t-shirt in size M and size L are two separate rows).
 // =====================================================
 router.post('/', async (req, res) => {
   try {
-    const { product_id, quantity = 1 } = req.body;
+    const { product_id, quantity = 1, size = null } = req.body;
 
     if (!product_id) {
       return res.status(400).json({ message: 'product_id is required' });
     }
 
-    // Check the product actually exists and has enough stock
     const [products] = await pool.query('SELECT * FROM products WHERE id = ?', [product_id]);
     if (products.length === 0) {
       return res.status(404).json({ message: 'Product not found' });
@@ -53,16 +55,25 @@ router.post('/', async (req, res) => {
     if (products[0].stock < quantity) {
       return res.status(400).json({ message: 'Not enough stock available' });
     }
+    // If the product requires a size (has sizes defined) but none was picked, reject it
+    if (products[0].sizes && !size) {
+      return res.status(400).json({ message: 'Please select a size' });
+    }
 
-    // "ON DUPLICATE KEY UPDATE" uses the UNIQUE(user_id, product_id) constraint
-    // from our schema — if the row already exists, it increases quantity
-    // instead of creating a duplicate row.
-    await pool.query(
-      `INSERT INTO cart (user_id, product_id, quantity)
-       VALUES (?, ?, ?)
-       ON DUPLICATE KEY UPDATE quantity = quantity + ?`,
-      [req.user.id, product_id, quantity, quantity]
+    // Check if this exact product+size is already in the cart
+    const [existing] = await pool.query(
+      'SELECT id FROM cart WHERE user_id = ? AND product_id = ? AND (size = ? OR (size IS NULL AND ? IS NULL))',
+      [req.user.id, product_id, size, size]
     );
+
+    if (existing.length > 0) {
+      await pool.query('UPDATE cart SET quantity = quantity + ? WHERE id = ?', [quantity, existing[0].id]);
+    } else {
+      await pool.query(
+        'INSERT INTO cart (user_id, product_id, quantity, size) VALUES (?, ?, ?, ?)',
+        [req.user.id, product_id, quantity, size]
+      );
+    }
 
     res.status(201).json({ message: 'Item added to cart' });
   } catch (err) {
@@ -73,7 +84,6 @@ router.post('/', async (req, res) => {
 
 // =====================================================
 // PUT /api/cart/:productId
-// Update the quantity of a specific item in the cart
 // =====================================================
 router.put('/:productId', async (req, res) => {
   try {
@@ -101,7 +111,6 @@ router.put('/:productId', async (req, res) => {
 
 // =====================================================
 // DELETE /api/cart/:productId
-// Remove a single item from the cart
 // =====================================================
 router.delete('/:productId', async (req, res) => {
   try {

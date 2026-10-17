@@ -1,27 +1,41 @@
 import { BrowserRouter, Routes, Route } from 'react-router-dom';
 import { AuthProvider } from './context/AuthContext';
 import Navbar from './components/Navbar';
+import Footer from './components/Footer';
+import ProtectedRoute from './components/ProtectedRoute';
 import Products from './pages/Products';
+import ProductDetail from './pages/ProductDetail';
 import Login from './pages/Login';
 import Register from './pages/Register';
 import Cart from './pages/Cart';
+import Orders from './pages/Orders';
+import Wishlist from './pages/Wishlist';
+import Admin from './pages/Admin';
 
-// Import Bootstrap's CSS so all the "btn", "card", "navbar" classes work
 import 'bootstrap/dist/css/bootstrap.min.css';
 
 function App() {
   return (
-    // AuthProvider wraps everything so any page can check "who is logged in"
     <AuthProvider>
       <BrowserRouter>
-        <Navbar />
-        <Routes>
-          <Route path="/" element={<Products />} />
-          <Route path="/login" element={<Login />} />
-          <Route path="/register" element={<Register />} />
-          <Route path="/cart" element={<Cart />} />
-          {/* We'll add /orders, /admin routes next */}
-        </Routes>
+        <div className="d-flex flex-column min-vh-100">
+          <Navbar />
+
+          <div className="flex-grow-1">
+            <Routes>
+              <Route path="/" element={<Products />} />
+              <Route path="/product/:id" element={<ProductDetail />} />
+              <Route path="/login" element={<Login />} />
+              <Route path="/register" element={<Register />} />
+              <Route path="/cart" element={<ProtectedRoute><Cart /></ProtectedRoute>} />
+              <Route path="/orders" element={<ProtectedRoute><Orders /></ProtectedRoute>} />
+              <Route path="/wishlist" element={<ProtectedRoute><Wishlist /></ProtectedRoute>} />
+              <Route path="/admin" element={<ProtectedRoute adminOnly><Admin /></ProtectedRoute>} />
+            </Routes>
+          </div>
+
+          <Footer />
+        </div>
       </BrowserRouter>
     </AuthProvider>
   );
