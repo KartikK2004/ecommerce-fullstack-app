@@ -1,4 +1,4 @@
-import { BrowserRouter, Routes, Route } from 'react-router-dom';
+import { HashRouter, Routes, Route } from 'react-router-dom';
 import { AuthProvider } from './context/AuthContext';
 import Navbar from './components/Navbar';
 import Footer from './components/Footer';
@@ -14,10 +14,12 @@ import Admin from './pages/Admin';
 
 import 'bootstrap/dist/css/bootstrap.min.css';
 
+// HashRouter keeps routes after a "#" (e.g. /#/cart), which works on GitHub Pages
+// where page refreshes on normal routes would otherwise show a 404.
 function App() {
   return (
     <AuthProvider>
-      <BrowserRouter>
+      <HashRouter>
         <div className="d-flex flex-column min-vh-100">
           <Navbar />
 
@@ -36,7 +38,7 @@ function App() {
 
           <Footer />
         </div>
-      </BrowserRouter>
+      </HashRouter>
     </AuthProvider>
   );
 }

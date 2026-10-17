@@ -6,7 +6,15 @@ const pool = require('./config/db');
 
 const app = express();
 
-app.use(cors());
+// In production, only the real frontend website may call this API.
+// FRONTEND_URL can hold one or more addresses separated by commas.
+// If it is not set (local development), any origin is allowed.
+const allowedOrigins = (process.env.FRONTEND_URL || '')
+  .split(',')
+  .map((s) => s.trim())
+  .filter(Boolean);
+
+app.use(cors(allowedOrigins.length ? { origin: allowedOrigins } : undefined));
 app.use(express.json());
 
 app.get('/api/health', async (req, res) => {
@@ -36,5 +44,5 @@ app.use('/api/wishlist', require('./routes/wishlist'));
 
 const PORT = process.env.PORT || 5000;
 app.listen(PORT, () => {
-  console.log(`Server running on http://localhost:${PORT}`);
+  console.log(`Server running on port ${PORT}`);
 });
