@@ -5,23 +5,19 @@ const { verifyToken } = require('../middleware/auth');
 
 router.use(verifyToken);
 
-// =====================================================
 // POST /api/orders/checkout
-// Converts the user's current cart into an order.
-// Uses a DATABASE TRANSACTION: if any step fails, everything
-// rolls back — we never end up charging for an order that's half-created.
-// =====================================================
+// Runs as ONE transaction: if any step fails, everything rolls back.
 router.post('/checkout', async (req, res) => {
-  const connection = await pool.getConnection(); // grab a dedicated connection for the transaction
+  const connection = await pool.getConnection();
 
   try {
     const { shipping_address } = req.body;
 
-    await connection.beginTransaction(); // start the transaction
+    await connection.beginTransaction();
 
-    // 1. Get the user's cart items with current product prices
     const [cartItems] = await connection.query(
-      `SELECT c.product_id, c.quantity, p.price, p.stock, p.name
+      `SELECT c.product_id, c.quantity, c.size,
+              p.price, p.discount_percent, p.stock, p.name
        FROM cart c
        JOIN products p ON c.product_id = p.id
        WHERE c.user_id = ?`,
@@ -34,19 +30,28 @@ router.post('/checkout', async (req, res) => {
       return res.status(400).json({ message: 'Cart is empty' });
     }
 
-    // 2. Check stock is still available for every item
+    // Stock check uses the TOTAL quantity per product (same product can be in several sizes)
+    const totals = {};
     for (const item of cartItems) {
-      if (item.stock < item.quantity) {
+      totals[item.product_id] = (totals[item.product_id] || 0) + item.quantity;
+    }
+    for (const item of cartItems) {
+      if (item.stock < totals[item.product_id]) {
         await connection.rollback();
         connection.release();
         return res.status(400).json({ message: `Not enough stock for ${item.name}` });
       }
     }
 
-    // 3. Calculate the total order amount
-    const totalAmount = cartItems.reduce((sum, item) => sum + (item.price * item.quantity), 0);
+    // Price actually charged = sale price if the product is discounted
+    const priced = cartItems.map((item) => ({
+      ...item,
+      finalPrice: item.discount_percent
+        ? Number((item.price * (1 - item.discount_percent / 100)).toFixed(2))
+        : Number(item.price)
+    }));
+    const totalAmount = priced.reduce((sum, i) => sum + i.finalPrice * i.quantity, 0);
 
-    // 4. Create the order record
     const [orderResult] = await connection.query(
       `INSERT INTO orders (user_id, total_amount, status, shipping_address)
        VALUES (?, ?, 'pending', ?)`,
@@ -54,24 +59,20 @@ router.post('/checkout', async (req, res) => {
     );
     const orderId = orderResult.insertId;
 
-    // 5. Insert one order_items row per cart item, and reduce product stock
-    for (const item of cartItems) {
+    for (const item of priced) {
       await connection.query(
-        `INSERT INTO order_items (order_id, product_id, quantity, price_at_purchase)
-         VALUES (?, ?, ?, ?)`,
-        [orderId, item.product_id, item.quantity, item.price]
+        `INSERT INTO order_items (order_id, product_id, quantity, price_at_purchase, size)
+         VALUES (?, ?, ?, ?, ?)`,
+        [orderId, item.product_id, item.quantity, item.finalPrice, item.size]
       );
-
       await connection.query(
         'UPDATE products SET stock = stock - ? WHERE id = ?',
         [item.quantity, item.product_id]
       );
     }
 
-    // 6. Clear the user's cart now that it's been turned into an order
     await connection.query('DELETE FROM cart WHERE user_id = ?', [req.user.id]);
 
-    // 7. Everything succeeded — commit the transaction (make it permanent)
     await connection.commit();
     connection.release();
 
@@ -81,7 +82,6 @@ router.post('/checkout', async (req, res) => {
       totalAmount: totalAmount.toFixed(2)
     });
   } catch (err) {
-    // If ANYTHING above failed, undo all the changes made in this transaction
     await connection.rollback();
     connection.release();
     console.error('Checkout error:', err.message);
@@ -89,10 +89,66 @@ router.post('/checkout', async (req, res) => {
   }
 });
 
-// =====================================================
+// PUT /api/orders/:id/cancel
+// A customer can cancel their OWN order, but only while it is still 'pending'.
+// Runs in a transaction: stock is returned and the status is changed together.
+router.put('/:id/cancel', async (req, res) => {
+  const connection = await pool.getConnection();
+
+  try {
+    await connection.beginTransaction();
+
+    // FOR UPDATE locks this order row, so a double-click or two tabs
+    // can't cancel it twice and return the stock twice.
+    const [orders] = await connection.query(
+      'SELECT id, status FROM orders WHERE id = ? AND user_id = ? FOR UPDATE',
+      [req.params.id, req.user.id]
+    );
+
+    if (orders.length === 0) {
+      await connection.rollback();
+      connection.release();
+      return res.status(404).json({ message: 'Order not found' });
+    }
+
+    if (orders[0].status !== 'pending') {
+      await connection.rollback();
+      connection.release();
+      return res.status(400).json({
+        message: `This order is already ${orders[0].status} and can no longer be cancelled`
+      });
+    }
+
+    // Put the items back into stock
+    const [items] = await connection.query(
+      'SELECT product_id, quantity FROM order_items WHERE order_id = ?',
+      [req.params.id]
+    );
+    for (const item of items) {
+      await connection.query(
+        'UPDATE products SET stock = stock + ? WHERE id = ?',
+        [item.quantity, item.product_id]
+      );
+    }
+
+    await connection.query(
+      "UPDATE orders SET status = 'cancelled' WHERE id = ?",
+      [req.params.id]
+    );
+
+    await connection.commit();
+    connection.release();
+
+    res.json({ message: 'Order cancelled', status: 'cancelled' });
+  } catch (err) {
+    await connection.rollback();
+    connection.release();
+    console.error('Cancel order error:', err.message);
+    res.status(500).json({ message: 'Server error cancelling order' });
+  }
+});
+
 // GET /api/orders
-// Get the logged-in user's order history
-// =====================================================
 router.get('/', async (req, res) => {
   try {
     const [orders] = await pool.query(
@@ -106,17 +162,13 @@ router.get('/', async (req, res) => {
   }
 });
 
-// =====================================================
 // GET /api/orders/:id
-// Get details of a single order, including its line items
-// =====================================================
 router.get('/:id', async (req, res) => {
   try {
     const [orders] = await pool.query(
       'SELECT * FROM orders WHERE id = ? AND user_id = ?',
       [req.params.id, req.user.id]
     );
-
     if (orders.length === 0) {
       return res.status(404).json({ message: 'Order not found' });
     }
