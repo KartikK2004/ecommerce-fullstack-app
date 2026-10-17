@@ -1,14 +1,9 @@
 import axios from 'axios';
 
-// This creates a pre-configured axios instance so we don't have to
-// type the full backend URL every time we make a request.
 const api = axios.create({
   baseURL: 'http://localhost:5000/api'
 });
 
-// An "interceptor" runs automatically before every request.
-// This one attaches the saved JWT token (if the user is logged in)
-// so protected routes (cart, checkout) work without extra code each time.
 api.interceptors.request.use((config) => {
   const token = localStorage.getItem('token');
   if (token) {
@@ -16,5 +11,19 @@ api.interceptors.request.use((config) => {
   }
   return config;
 });
+
+// If the server says the token is bad, clear the login and go to the login page
+api.interceptors.response.use(
+  (response) => response,
+  (error) => {
+    const message = error.response?.data?.message;
+    if (error.response?.status === 403 && message === 'Invalid or expired token') {
+      localStorage.removeItem('token');
+      localStorage.removeItem('user');
+      window.location.href = '/login';
+    }
+    return Promise.reject(error);
+  }
+);
 
 export default api;
